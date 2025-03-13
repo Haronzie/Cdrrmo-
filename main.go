@@ -59,8 +59,9 @@ func sanitizeName(name string) string {
 
 type User struct {
 	Username  string    `json:"username"`
+	Email     string    `json:"email"` // Added Email field
 	Password  string    `json:"password"`
-	Role      string    `json:"role"` // "admin" or "user"
+	Role      string    `json:"role"`
 	Active    bool      `json:"active"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -180,22 +181,124 @@ func (a *App) createTables() {
 	if err != nil {
 		log.Fatal("Error creating directories table:", err)
 	}
+
+	// Activity Log table.
+	activityTable := `
+    CREATE TABLE IF NOT EXISTS activity_log (
+        id SERIAL PRIMARY KEY,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        event TEXT NOT NULL
+    );`
+	_, err = a.DB.Exec(activityTable)
+	if err != nil {
+		log.Fatal("Error creating activity_log table:", err)
+	}
 }
 
-// getUserFromSession retrieves the current user.
+func (a *App) logActivity(event string) {
+	_, err := a.DB.Exec("INSERT INTO activity_log (event) VALUES ($1)", event)
+	if err != nil {
+		log.Println("Error logging activity:", err)
+	}
+}
+
 func (a *App) getUserFromSession(r *http.Request) (User, error) {
 	session, err := a.Store.Get(r, "session")
 	if err != nil {
-		return User{}, err
+		log.Println("SESSION RETRIEVAL ERROR:", err)
+		return User{}, errors.New("session retrieval error")
 	}
+
+	log.Println("SESSION DATA:", session.Values)
+
 	username, ok := session.Values["username"].(string)
 	if !ok || username == "" {
+		log.Println("SESSION MISSING USERNAME")
 		return User{}, errors.New("session not found or username not set")
 	}
-	return a.getUserByUsername(username)
+
+	role, ok := session.Values["role"].(string)
+	if !ok || role == "" {
+		log.Println("SESSION MISSING ROLE for user:", username)
+		return User{}, errors.New("role not set in session")
+	}
+
+	user, err := a.getUserByUsername(username)
+	if err != nil {
+		log.Println("USER NOT FOUND IN DB:", username)
+		return User{}, err
+	}
+
+	log.Println("SESSION VERIFIED - Username:", username, "Role:", user.Role)
+	return user, nil
 }
 
-// getUserByUsername retrieves a user from the DB.
+func (a *App) userProfileHandler(w http.ResponseWriter, r *http.Request) {
+	user, err := a.getUserFromSession(r)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"username":   user.Username,
+			"email":      user.Email,
+			"role":       user.Role,
+			"active":     user.Active,
+			"created_at": user.CreatedAt,
+			"updated_at": user.UpdatedAt,
+		})
+	case http.MethodPut:
+		var req struct {
+			Username string `json:"username"`
+			Email    string `json:"email"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+		req.Username = strings.TrimSpace(req.Username)
+		req.Email = strings.TrimSpace(req.Email)
+		if req.Username == "" || req.Email == "" {
+			respondError(w, http.StatusBadRequest, "Username and Email cannot be empty")
+			return
+		}
+		_, err := a.DB.Exec("UPDATE users SET username = $1, email = $2, updated_at = CURRENT_TIMESTAMP WHERE username = $3", req.Username, req.Email, user.Username)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "Error updating profile")
+			return
+		}
+		session, err := a.Store.Get(r, "session")
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "Error retrieving session")
+			return
+		}
+		session.Values["username"] = req.Username
+		if err := session.Save(r, w); err != nil {
+			respondError(w, http.StatusInternalServerError, "Error saving session")
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]string{
+			"message":  "Profile updated successfully",
+			"username": req.Username,
+		})
+	default:
+		respondError(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+func (a *App) adminExistsHandler(w http.ResponseWriter, r *http.Request) {
+	var exists bool
+	err := a.DB.QueryRow("SELECT EXISTS (SELECT 1 FROM users WHERE role = 'admin')").Scan(&exists)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Database error")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]bool{"exists": exists})
+}
+
 func (a *App) getUserByUsername(username string) (User, error) {
 	row := a.DB.QueryRow("SELECT username, password, role, active, created_at, updated_at FROM users WHERE username = $1", username)
 	var user User
@@ -203,19 +306,16 @@ func (a *App) getUserByUsername(username string) (User, error) {
 	return user, err
 }
 
-// createUser inserts a new user.
 func (a *App) createUser(user User) error {
 	_, err := a.DB.Exec("INSERT INTO users(username, password, role) VALUES($1, $2, $3)", user.Username, user.Password, user.Role)
 	return err
 }
 
-// updateUser updates a user and refreshes updated_at.
 func (a *App) updateUser(user User) error {
 	_, err := a.DB.Exec("UPDATE users SET password = $1, role = $2, updated_at = CURRENT_TIMESTAMP WHERE username = $3", user.Password, user.Role, user.Username)
 	return err
 }
 
-// deleteUser removes a user.
 func (a *App) deleteUser(username string) error {
 	res, err := a.DB.Exec("DELETE FROM users WHERE username = $1", username)
 	if err != nil {
@@ -240,12 +340,10 @@ func (a *App) getFileRecord(fileName string) (FileRecord, error) {
 	return fr, err
 }
 
-// cacheFileRecord adds or updates a file record in the cache.
 func (a *App) cacheFileRecord(fr FileRecord) {
 	a.FileCache[fr.FileName] = fr
 }
 
-// deleteFileRecord removes a file record from both the cache and the database.
 func (a *App) deleteFileRecord(fileName string) error {
 	delete(a.FileCache, fileName)
 	_, err := a.DB.Exec("DELETE FROM files WHERE file_name = $1", fileName)
@@ -254,60 +352,63 @@ func (a *App) deleteFileRecord(fileName string) error {
 
 // --- Endpoints ---
 
-// registerHandler handles user registration.
 func (a *App) registerHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		respondError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
+
 	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+
 	req.Username = strings.TrimSpace(req.Username)
 	req.Password = strings.TrimSpace(req.Password)
+
 	if req.Username == "" || req.Password == "" {
 		respondError(w, http.StatusBadRequest, "Username and password cannot be empty")
 		return
 	}
-	// Check if user already exists.
+
 	if _, err := a.getUserByUsername(req.Username); err == nil {
 		respondError(w, http.StatusBadRequest, "User already exists")
 		return
 	}
-	// Allow first user to be admin; if an admin exists, registration is closed.
-	if a.adminExists() {
-		respondError(w, http.StatusForbidden, "Admin already registered. Registration closed.")
-		return
-	}
+
+	isFirstAdmin := !a.adminExists()
+
 	hashedPass, err := hashPassword(req.Password)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Error hashing password")
 		return
 	}
-	newUser := User{
-		Username: req.Username,
-		Password: hashedPass,
-		Role:     "admin",
-		Active:   true,
-	}
-	if err := a.createUser(newUser); err != nil {
-		respondError(w, http.StatusInternalServerError, "Error creating user")
+
+	activeStatus := isFirstAdmin
+
+	_, err = a.DB.Exec("INSERT INTO users (username, password, role, active) VALUES ($1, $2, $3, $4)",
+		req.Username, hashedPass, "admin", activeStatus)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Error registering admin")
 		return
 	}
-	// Set session using Gorilla sessions.
+
 	session, err := a.Store.Get(r, "session")
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Error getting session")
 		return
 	}
 	session.Values["username"] = req.Username
+	session.Values["role"] = "admin"
 	if err := session.Save(r, w); err != nil {
 		respondError(w, http.StatusInternalServerError, "Error saving session")
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Admin '%s' registered successfully", req.Username)})
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"message": fmt.Sprintf("Admin '%s' registered successfully", req.Username),
+	})
 }
 
 func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
@@ -315,34 +416,56 @@ func (a *App) loginHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
+
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+
 	req.Username = strings.TrimSpace(req.Username)
 	req.Password = strings.TrimSpace(req.Password)
+
 	user, err := a.getUserByUsername(req.Username)
-	if err != nil || !checkPasswordHash(req.Password, user.Password) {
-		respondJSON(w, http.StatusUnauthorized, map[string]string{"message": "Invalid username or password"})
-		return
-	}
-	// Update user active status.
-	_, err = a.DB.Exec("UPDATE users SET active = $1 WHERE username = $2", true, user.Username)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Error updating user status")
+		respondError(w, http.StatusUnauthorized, "Invalid username or password")
 		return
 	}
+
+	if !user.Active {
+		respondError(w, http.StatusForbidden, "Your account is not activated. Please contact an admin.")
+		return
+	}
+
+	if !checkPasswordHash(req.Password, user.Password) {
+		respondError(w, http.StatusUnauthorized, "Invalid username or password")
+		return
+	}
+
 	session, err := a.Store.Get(r, "session")
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Error getting session")
 		return
 	}
-	session.Values["username"] = req.Username
+
+	session.Values["username"] = user.Username
+	session.Values["role"] = user.Role
+
+	session.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   86400,
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+	}
+
 	if err := session.Save(r, w); err != nil {
 		respondError(w, http.StatusInternalServerError, "Error saving session")
 		return
 	}
+
+	log.Println("SESSION STORED:", session.Values)
+
 	respondJSON(w, http.StatusOK, map[string]string{
 		"message":  "Login successful",
 		"username": user.Username,
@@ -355,15 +478,15 @@ func (a *App) logoutHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
-	// Mark user inactive.
+
 	user, err := a.getUserFromSession(r)
-	if err == nil && user.Username != "" {
-		_, updateErr := a.DB.Exec("UPDATE users SET active = $1 WHERE username = $2", false, user.Username)
-		if updateErr != nil {
-			respondError(w, http.StatusInternalServerError, "Error updating user status")
-			return
-		}
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "Not authenticated")
+		return
 	}
+
+	a.logActivity(fmt.Sprintf("User '%s' logged out.", user.Username))
+
 	session, err := a.Store.Get(r, "session")
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Error retrieving session")
@@ -374,6 +497,7 @@ func (a *App) logoutHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "Error saving session")
 		return
 	}
+
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Logout successful"})
 }
 
@@ -414,7 +538,6 @@ func (a *App) forgotPasswordHandler(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Password has been reset successfully. Please login with your new password."})
 }
 
-// adminExists checks if any admin exists in the users table.
 func (a *App) adminExists() bool {
 	row := a.DB.QueryRow("SELECT COUNT(*) FROM users WHERE role = 'admin'")
 	var count int
@@ -424,7 +547,6 @@ func (a *App) adminExists() bool {
 	return count > 0
 }
 
-// createFileRecord creates a new file record in the database.
 func (a *App) createFileRecord(fr FileRecord) error {
 	_, err := a.DB.Exec("INSERT INTO files(file_name, size, content_type, uploader) VALUES($1, $2, $3, $4)",
 		fr.FileName, fr.Size, fr.ContentType, fr.Uploader)
@@ -454,7 +576,6 @@ func (a *App) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 
 	var msg string
-	// Check if the file record exists.
 	if _, err := a.getFileRecord(handler.Filename); err == nil {
 		msg = fmt.Sprintf("File '%s' overwritten successfully", handler.Filename)
 	} else {
@@ -483,6 +604,9 @@ func (a *App) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "Error saving file")
 		return
 	}
+
+	a.logActivity(fmt.Sprintf("File '%s' uploaded by '%s'.", handler.Filename, currentUser.Username))
+
 	respondJSON(w, http.StatusOK, map[string]string{"message": msg})
 }
 
@@ -515,7 +639,7 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
-	_, err := a.getUserFromSession(r)
+	user, err := a.getUserFromSession(r)
 	if err != nil {
 		respondError(w, http.StatusForbidden, "Forbidden")
 		return
@@ -539,9 +663,38 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 	w.Header().Set("Content-Type", fr.ContentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fr.FileName))
+
 	if _, err := io.Copy(w, f); err != nil {
 		log.Println("Error sending file:", err)
+		return
 	}
+
+	a.logActivity(fmt.Sprintf("User '%s' downloaded file '%s'.", user.Username, fileName))
+}
+
+func (a *App) activitiesHandler(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.DB.Query("SELECT id, timestamp, event FROM activity_log ORDER BY timestamp DESC LIMIT 50")
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Error retrieving activity logs")
+		return
+	}
+	defer rows.Close()
+
+	type Activity struct {
+		ID        int       `json:"id"`
+		Timestamp time.Time `json:"timestamp"`
+		Event     string    `json:"event"`
+	}
+	var activities []Activity
+	for rows.Next() {
+		var act Activity
+		if err := rows.Scan(&act.ID, &act.Timestamp, &act.Event); err != nil {
+			respondError(w, http.StatusInternalServerError, "Error scanning activity log")
+			return
+		}
+		activities = append(activities, act)
+	}
+	respondJSON(w, http.StatusOK, activities)
 }
 
 // createResourceHandler creates files or directories.
@@ -555,7 +708,8 @@ func (a *App) createResourceHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceType string `json:"resource_type"` // "file" or "directory"
 		Name         string `json:"name"`
-		Content      string `json:"content"` // optional for files
+		Content      string `json:"content"`   // optional for files
+		Directory    string `json:"directory"` // optional for files
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request body")
@@ -568,10 +722,19 @@ func (a *App) createResourceHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	basePath := "uploads"
-	resourcePath := filepath.Join(basePath, req.Name)
-
-	switch req.ResourceType {
-	case "file":
+	if req.ResourceType == "file" {
+		targetDir := basePath
+		req.Directory = strings.TrimSpace(req.Directory)
+		if req.Directory != "" {
+			targetDir = filepath.Join(basePath, sanitizeName(req.Directory))
+			if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+				if err := os.MkdirAll(targetDir, 0755); err != nil {
+					respondError(w, http.StatusInternalServerError, "Error creating target directory")
+					return
+				}
+			}
+		}
+		resourcePath := filepath.Join(targetDir, req.Name)
 		file, err := os.Create(resourcePath)
 		if err != nil {
 			respondError(w, http.StatusInternalServerError, "Error creating file")
@@ -585,7 +748,11 @@ func (a *App) createResourceHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		respondJSON(w, http.StatusOK, map[string]string{"message": "File created successfully"})
-	case "directory":
+		return
+	}
+
+	if req.ResourceType == "directory" {
+		resourcePath := filepath.Join(basePath, req.Name)
 		err := os.Mkdir(resourcePath, 0755)
 		if err != nil {
 			respondError(w, http.StatusInternalServerError, "Error creating directory")
@@ -600,10 +767,12 @@ func (a *App) createResourceHandler(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusInternalServerError, "Error saving directory record")
 			return
 		}
+		a.logActivity(fmt.Sprintf("User '%s' created directory '%s'.", user.Username, req.Name))
 		respondJSON(w, http.StatusOK, map[string]string{"message": "Directory created successfully"})
-	default:
-		respondError(w, http.StatusBadRequest, "Invalid resource type")
+		return
 	}
+
+	respondError(w, http.StatusBadRequest, "Invalid resource type")
 }
 
 // deleteResourceHandler deletes files or directories.
@@ -653,21 +822,26 @@ func (a *App) deleteResourceHandler(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusInternalServerError, "Error deleting file record")
 			return
 		}
+		a.logActivity(fmt.Sprintf("Admin '%s' deleted file '%s'.", user.Username, req.Name))
 		respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("File '%s' deleted successfully", req.Name)})
 	case "directory":
 		if err := os.RemoveAll(resourcePath); err != nil {
 			respondError(w, http.StatusInternalServerError, "Error deleting directory")
 			return
 		}
-		// Optionally remove directory metadata from DB.
+		a.logActivity(fmt.Sprintf("Admin '%s' deleted directory '%s'.", user.Username, req.Name))
 		respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Directory '%s' deleted successfully", req.Name)})
 	default:
 		respondError(w, http.StatusBadRequest, "Invalid resource type")
 	}
 }
 
-// moveResourceHandler moves (renames) files or directories.
-func (a *App) moveResourceHandler(w http.ResponseWriter, r *http.Request) {
+// =======================
+// NEW SEPARATE HANDLERS:
+// =======================
+//
+// renameResourceHandler handles renaming a file or directory (changing its name within the same directory).
+func (a *App) renameResourceHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		respondError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
@@ -686,6 +860,7 @@ func (a *App) moveResourceHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	// For renaming, we only allow simple names.
 	req.OldName = sanitizeName(strings.TrimSpace(req.OldName))
 	req.NewName = sanitizeName(strings.TrimSpace(req.NewName))
 	if req.OldName == "" || req.NewName == "" {
@@ -703,11 +878,11 @@ func (a *App) moveResourceHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if user.Role != "admin" && fr.Uploader != user.Username {
-			respondError(w, http.StatusForbidden, "Forbidden: You can only move files you uploaded")
+			respondError(w, http.StatusForbidden, "Forbidden: You can only rename files you uploaded")
 			return
 		}
 		if err := os.Rename(oldPath, newPath); err != nil {
-			respondError(w, http.StatusInternalServerError, "Error moving file")
+			respondError(w, http.StatusInternalServerError, "Error renaming file")
 			return
 		}
 		_, err = a.DB.Exec("UPDATE files SET file_name = $1 WHERE file_name = $2", req.NewName, req.OldName)
@@ -716,21 +891,84 @@ func (a *App) moveResourceHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		delete(a.FileCache, req.OldName)
-		respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("File moved from '%s' to '%s' successfully", req.OldName, req.NewName)})
+		respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("File renamed from '%s' to '%s' successfully", req.OldName, req.NewName)})
 	case "directory":
 		if err := os.Rename(oldPath, newPath); err != nil {
-			respondError(w, http.StatusInternalServerError, "Error moving directory")
+			respondError(w, http.StatusInternalServerError, "Error renaming directory")
 			return
 		}
-		// Optionally update directory metadata in DB.
-		respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Directory moved from '%s' to '%s' successfully", req.OldName, req.NewName)})
+		respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Directory renamed from '%s' to '%s' successfully", req.OldName, req.NewName)})
 	default:
 		respondError(w, http.StatusBadRequest, "Invalid resource type")
 		return
 	}
 }
 
-// shareFileHandler creates a shareable link for a file.
+// moveResourceHandler handles moving a file or directory to a new location (destination can include subdirectories).
+func (a *App) moveResourceHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		respondError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+	user, err := a.getUserFromSession(r)
+	if err != nil {
+		respondError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+	var req struct {
+		ResourceType string `json:"resource_type"` // "file" or "directory"
+		Source       string `json:"source"`        // current relative path (can include subdirectories)
+		Destination  string `json:"destination"`   // new relative path (can include subdirectories)
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.Source = strings.TrimSpace(req.Source)
+	req.Destination = strings.TrimSpace(req.Destination)
+	if req.Source == "" || req.Destination == "" {
+		respondError(w, http.StatusBadRequest, "Source and Destination cannot be empty")
+		return
+	}
+	basePath := "uploads"
+	oldPath := filepath.Join(basePath, req.Source)
+	newPath := filepath.Join(basePath, req.Destination)
+	switch req.ResourceType {
+	case "file":
+		// Use base names for permission check and record update.
+		fr, err := a.getFileRecord(filepath.Base(req.Source))
+		if err != nil {
+			respondError(w, http.StatusNotFound, "File does not exist")
+			return
+		}
+		if user.Role != "admin" && fr.Uploader != user.Username {
+			respondError(w, http.StatusForbidden, "Forbidden: You can only move files you uploaded")
+			return
+		}
+		if err := os.Rename(oldPath, newPath); err != nil {
+			respondError(w, http.StatusInternalServerError, "Error moving file")
+			return
+		}
+		newName := filepath.Base(req.Destination)
+		_, err = a.DB.Exec("UPDATE files SET file_name = $1 WHERE file_name = $2", newName, filepath.Base(req.Source))
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "Error updating file record")
+			return
+		}
+		delete(a.FileCache, filepath.Base(req.Source))
+		respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("File moved from '%s' to '%s' successfully", req.Source, req.Destination)})
+	case "directory":
+		if err := os.Rename(oldPath, newPath); err != nil {
+			respondError(w, http.StatusInternalServerError, "Error moving directory")
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Directory moved from '%s' to '%s' successfully", req.Source, req.Destination)})
+	default:
+		respondError(w, http.StatusBadRequest, "Invalid resource type")
+		return
+	}
+}
+
 func (a *App) shareFileHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		respondError(w, http.StatusMethodNotAllowed, "Invalid request method")
@@ -775,7 +1013,6 @@ func (a *App) shareFileHandler(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"share_url": shareURL})
 }
 
-// downloadShareHandler serves a file via a share token.
 func (a *App) downloadShareHandler(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
@@ -805,8 +1042,15 @@ func (a *App) downloadShareHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("Error sending file:", err)
 	}
 }
-
-// --- Admin & User Endpoints ---
+func (a *App) userRoleHandler(w http.ResponseWriter, r *http.Request) {
+	user, err := a.getUserFromSession(r)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+	log.Println("USER ROLE CHECK:", user.Username, "Role:", user.Role)
+	respondJSON(w, http.StatusOK, map[string]string{"role": user.Role})
+}
 
 func (a *App) adminHandler(w http.ResponseWriter, r *http.Request) {
 	user, err := a.getUserFromSession(r)
@@ -826,6 +1070,66 @@ func (a *App) userHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintln(w, "Welcome user")
+}
+
+func (a *App) uploadProfileHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+
+	user, err := a.getUserFromSession(r)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+
+	err = r.ParseMultipartForm(5 << 20)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "Error parsing form data")
+		return
+	}
+
+	file, handler, err := r.FormFile("file")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "Error retrieving the file")
+		return
+	}
+	defer file.Close()
+
+	originalName := sanitizeName(handler.Filename)
+
+	token, err := generateToken()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Error generating file token")
+		return
+	}
+	newFileName := fmt.Sprintf("%s_%s", token, originalName)
+
+	dstPath := filepath.Join("uploads", newFileName)
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Error saving file")
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, file); err != nil {
+		respondError(w, http.StatusInternalServerError, "Error saving file")
+		return
+	}
+
+	fileURL := fmt.Sprintf("http://%s/uploads/%s", r.Host, newFileName)
+
+	_, err = a.DB.Exec("UPDATE users SET profile_picture = $1, updated_at = CURRENT_TIMESTAMP WHERE username = $2", fileURL, user.Username)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Error updating user profile")
+		return
+	}
+
+	a.logActivity(fmt.Sprintf("User '%s' uploaded a profile picture.", user.Username))
+
+	respondJSON(w, http.StatusOK, map[string]string{"url": fileURL})
 }
 
 func (a *App) usersHandler(w http.ResponseWriter, r *http.Request) {
@@ -865,43 +1169,53 @@ func (a *App) usersHandler(w http.ResponseWriter, r *http.Request) {
 func (a *App) addUserHandler(w http.ResponseWriter, r *http.Request) {
 	user, err := a.getUserFromSession(r)
 	if err != nil || user.Role != "admin" {
-		respondError(w, http.StatusForbidden, "Forbidden")
+		respondError(w, http.StatusForbidden, "Forbidden: Only admins can add users")
 		return
 	}
+
 	if r.Method != http.MethodPost {
 		respondError(w, http.StatusMethodNotAllowed, "Invalid request method")
 		return
 	}
+
 	var req AddUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+
 	req.Username = strings.TrimSpace(req.Username)
 	req.Password = strings.TrimSpace(req.Password)
 	if req.Username == "" || req.Password == "" {
 		respondError(w, http.StatusBadRequest, "Username and password cannot be empty")
 		return
 	}
+
+	req.Username = strings.ToLower(req.Username)
+
 	if _, err := a.getUserByUsername(req.Username); err == nil {
 		respondError(w, http.StatusBadRequest, "User already exists")
 		return
 	}
+
 	hashedPass, err := hashPassword(req.Password)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Error hashing password")
 		return
 	}
-	newUser := User{
-		Username: req.Username,
-		Password: hashedPass,
-		Role:     "user",
-	}
-	if err := a.createUser(newUser); err != nil {
+
+	_, err = a.DB.Exec("INSERT INTO users (username, password, role, active) VALUES ($1, $2, $3, $4)",
+		req.Username, hashedPass, "user", false)
+	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Error adding user")
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("User '%s' has been added successfully", req.Username)})
+
+	a.logActivity(fmt.Sprintf("User '%s' was added.", req.Username))
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"message": fmt.Sprintf("User '%s' has been added successfully and is inactive.", req.Username),
+	})
 }
 
 func (a *App) updateUserHandler(w http.ResponseWriter, r *http.Request) {
@@ -952,7 +1266,6 @@ func (a *App) updateUserHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "Error updating user")
 		return
 	}
-	// Update file records if username has changed.
 	if req.OldUsername != req.NewUsername {
 		_, err = a.DB.Exec("UPDATE files SET uploader = $1 WHERE uploader = $2", req.NewUsername, req.OldUsername)
 		if err != nil {
@@ -960,14 +1273,7 @@ func (a *App) updateUserHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Invalidate session if needed.
-	if req.OldUsername == user.Username {
-		session, err := a.Store.Get(r, "session")
-		if err == nil {
-			session.Options.MaxAge = -1
-			session.Save(r, w)
-		}
-	}
+	a.logActivity(fmt.Sprintf("Admin '%s' updated user '%s' to '%s'.", user.Username, req.OldUsername, req.NewUsername))
 	respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("User '%s' has been updated to '%s' with new password", req.OldUsername, req.NewUsername)})
 }
 
@@ -995,6 +1301,7 @@ func (a *App) deleteUserHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "User does not exist or error deleting user")
 		return
 	}
+	a.logActivity(fmt.Sprintf("Admin '%s' deleted user '%s'.", user.Username, req.Username))
 	respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("User '%s' has been deleted successfully", req.Username)})
 }
 
@@ -1032,6 +1339,7 @@ func (a *App) assignAdminHandler(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "Error updating user role")
 		return
 	}
+	a.logActivity(fmt.Sprintf("Admin '%s' assigned admin role to user '%s'.", user.Username, req.Username))
 	respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("User '%s' is now an admin", req.Username)})
 }
 
@@ -1071,20 +1379,23 @@ func (a *App) updateUserStatusHandler(w http.ResponseWriter, r *http.Request) {
 // --- CORS Middleware ---
 func enableCORS(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
 		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
 			return
 		}
+
 		h.ServeHTTP(w, r)
 	})
 }
 
 // --- Main Function ---
 func main() {
-	// Load configuration from environment variables.
-	connStr := os.Getenv("DB_CONN") // e.g., "host=localhost port=5432 user=postgres password=haron dbname=Cdrrmo sslmode=disable"
+	connStr := os.Getenv("DB_CONN")
 	if connStr == "" {
 		log.Fatal("DB_CONN not set")
 	}
@@ -1103,7 +1414,6 @@ func main() {
 	}
 	log.Println("Database connected successfully")
 
-	// Ensure uploads folder exists.
 	if _, err := os.Stat("uploads"); os.IsNotExist(err) {
 		err := os.Mkdir("uploads", 0755)
 		if err != nil {
@@ -1125,13 +1435,19 @@ func main() {
 	mux.HandleFunc("/login", app.loginHandler)
 	mux.HandleFunc("/logout", app.logoutHandler)
 	mux.HandleFunc("/forgot-password", app.forgotPasswordHandler)
+	mux.HandleFunc("/user-role", app.userRoleHandler)
+	mux.HandleFunc("/api/user/profile", app.userProfileHandler)
+	mux.HandleFunc("/api/user/upload-profile", app.uploadProfileHandler)
+
 	// File endpoints.
 	mux.HandleFunc("/upload", app.uploadHandler)
 	mux.HandleFunc("/files", app.filesHandler)
 	mux.HandleFunc("/download", app.downloadHandler)
 	mux.HandleFunc("/create-resource", app.createResourceHandler)
 	mux.HandleFunc("/delete-resource", app.deleteResourceHandler)
+	// Separate move and rename endpoints.
 	mux.HandleFunc("/move-resource", app.moveResourceHandler)
+	mux.HandleFunc("/rename-resource", app.renameResourceHandler)
 	mux.HandleFunc("/share-file", app.shareFileHandler)
 	mux.HandleFunc("/download-share", app.downloadShareHandler)
 	// Admin endpoints.
@@ -1144,10 +1460,13 @@ func main() {
 	mux.HandleFunc("/assign-admin", app.assignAdminHandler)
 	mux.HandleFunc("/admin-status", app.adminStatusHandler)
 	mux.HandleFunc("/update-user-status", app.updateUserStatusHandler)
+	mux.HandleFunc("/admin-exists", app.adminExistsHandler)
+	// Activities endpoint.
+	mux.HandleFunc("/activities", app.activitiesHandler)
 
 	handler := enableCORS(mux)
-	log.Println("Starting HTTP server on port 8080...")
-	if err := http.ListenAndServe(":8080", handler); err != nil {
+	log.Println("Starting HTTP server on port 9090...")
+	if err := http.ListenAndServe(":9090", handler); err != nil {
 		log.Fatal("HTTP server error:", err)
 	}
 }
