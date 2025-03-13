@@ -1035,6 +1035,110 @@ func (a *App) assignAdminHandler(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("User '%s' is now an admin", req.Username)})
 }
 
+// copyResourceHandler copies a file from Source to Destination.
+func (a *App) copyResourceHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		respondError(w, http.StatusMethodNotAllowed, "Invalid request method")
+		return
+	}
+	user, err := a.getUserFromSession(r)
+	if err != nil {
+		respondError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	var req struct {
+		ResourceType string `json:"resource_type"` // "file" (optionally "directory" if you expand)
+		Source       string `json:"source"`
+		Destination  string `json:"destination"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.Source = strings.TrimSpace(req.Source)
+	req.Destination = strings.TrimSpace(req.Destination)
+	if req.Source == "" || req.Destination == "" {
+		respondError(w, http.StatusBadRequest, "Source and Destination cannot be empty")
+		return
+	}
+
+	// We only handle files for now:
+	if req.ResourceType != "file" {
+		respondError(w, http.StatusBadRequest, "Invalid or unsupported resource_type")
+		return
+	}
+
+	// 1. Check that the source file exists and that the user has permission to copy it.
+	fr, err := a.getFileRecord(req.Source)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Source file does not exist")
+		return
+	}
+	if user.Role != "admin" && fr.Uploader != user.Username {
+		respondError(w, http.StatusForbidden, "Forbidden: You can only copy files you uploaded")
+		return
+	}
+
+	// 2. Build source and destination paths under 'uploads' folder
+	basePath := "uploads"
+	sourcePath := filepath.Join(basePath, req.Source)
+	destPath := filepath.Join(basePath, req.Destination)
+
+	// 3. Actually copy the file on disk
+	if err := copyFile(sourcePath, destPath); err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("Error copying file: %v", err))
+		return
+	}
+
+	// 4. Create a new file record in the DB if the user wants a distinct file record.
+	//    E.g., if "folder/newfile.txt" is different from "oldfile.txt"
+	newFileName := filepath.Base(req.Destination) // e.g. "newfile.txt"
+	if newFileName != fr.FileName {
+		// We'll add a new row in 'files' table for the new copy
+		newFr := FileRecord{
+			FileName:    newFileName,
+			Size:        fr.Size,        // or you can re-check the file size on disk
+			ContentType: fr.ContentType, // same content type
+			Uploader:    fr.Uploader,    // same uploader
+		}
+		if err := a.createFileRecord(newFr); err != nil {
+			respondError(w, http.StatusInternalServerError, "Error creating new file record")
+			return
+		}
+		// Cache it if you want
+		a.cacheFileRecord(newFr)
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"message": fmt.Sprintf("File '%s' copied to '%s' successfully", req.Source, req.Destination),
+	})
+}
+
+// copyFile is a helper that copies the file contents from src to dst
+func copyFile(src, dst string) error {
+	// Ensure the destination folder exists
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (a *App) adminStatusHandler(w http.ResponseWriter, r *http.Request) {
 	exists := false
 	row := a.DB.QueryRow("SELECT COUNT(*) FROM users WHERE role = 'admin'")
@@ -1134,6 +1238,7 @@ func main() {
 	mux.HandleFunc("/move-resource", app.moveResourceHandler)
 	mux.HandleFunc("/share-file", app.shareFileHandler)
 	mux.HandleFunc("/download-share", app.downloadShareHandler)
+	mux.HandleFunc("/copy-resource", app.copyResourceHandler)
 	// Admin endpoints.
 	mux.HandleFunc("/admin", app.adminHandler)
 	mux.HandleFunc("/user", app.userHandler)
