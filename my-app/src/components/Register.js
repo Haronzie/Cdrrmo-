@@ -23,14 +23,18 @@ const Register = () => {
         name="register"
         initialValues={{ remember: true }}
         onFinish={onFinish}
-        layout="horizontal"
+        layout="vertical"  // Set layout to vertical to ensure uniform alignment
       >
         <Form.Item
           name="username"
           label="Username"
           rules={[{ required: true, message: 'Please input your username!' }]}
         >
-          <Input prefix={<UserOutlined />} placeholder="Username" />
+          <Input
+            prefix={<UserOutlined />}
+            placeholder="Username"
+            autoFocus
+          />
         </Form.Item>
         <Form.Item
           name="password"

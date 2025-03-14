@@ -25,14 +25,21 @@ const Login = () => {
           label="Username"
           rules={[{ required: true, message: 'Please input your username!' }]}
         >
-          <Input prefix={<UserOutlined />} placeholder="Username" />
+          <Input
+            prefix={<UserOutlined />}
+            placeholder="Username"
+            autoFocus // Automatically focuses this input on page load
+          />
         </Form.Item>
         <Form.Item
           name="password"
           label="Password"
           rules={[{ required: true, message: 'Please input your password!' }]}
         >
-          <Input.Password prefix={<LockOutlined />} placeholder="Password" />
+          <Input.Password
+            prefix={<LockOutlined />}
+            placeholder="Password"
+          />
         </Form.Item>
         <Form.Item>
           <Button type="primary" htmlType="submit" style={{ width: '100%' }}>
