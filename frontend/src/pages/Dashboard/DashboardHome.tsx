@@ -8,7 +8,8 @@ export default function DashboardHome() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex items-center justify-between">
+        <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex items-center justify-between 
+                        hover:shadow-lg hover:scale-105 transform transition duration-300 ease-in-out cursor-pointer">
           <div>
             <h2 className="text-sm text-gray-500">Total Users</h2>
             <p className="text-3xl font-bold text-gray-800">128</p>
@@ -16,7 +17,8 @@ export default function DashboardHome() {
           <Users className="h-10 w-10 text-indigo-500" />
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex items-center justify-between">
+        <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex items-center justify-between 
+                        hover:shadow-lg hover:scale-105 transform transition duration-300 ease-in-out cursor-pointer">
           <div>
             <h2 className="text-sm text-gray-500">Files Shared</h2>
             <p className="text-3xl font-bold text-gray-800">542</p>
@@ -24,7 +26,8 @@ export default function DashboardHome() {
           <FileText className="h-10 w-10 text-green-500" />
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex items-center justify-between">
+        <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex items-center justify-between 
+                        hover:shadow-lg hover:scale-105 transform transition duration-300 ease-in-out cursor-pointer">
           <div>
             <h2 className="text-sm text-gray-500">Active Sessions</h2>
             <p className="text-3xl font-bold text-gray-800">23</p>
@@ -50,7 +53,7 @@ export default function DashboardHome() {
               </tr>
             </thead>
             <tbody>
-              <tr className="border-t hover:bg-gray-50">
+              <tr className="border-t hover:bg-gray-50 transition duration-200">
                 <td className="py-3 px-4 font-medium text-gray-800">admin</td>
                 <td className="py-3 px-4 text-gray-600">admin@example.com</td>
                 <td className="py-3 px-4">
@@ -59,7 +62,7 @@ export default function DashboardHome() {
                   </span>
                 </td>
               </tr>
-              <tr className="border-t hover:bg-gray-50">
+              <tr className="border-t hover:bg-gray-50 transition duration-200">
                 <td className="py-3 px-4 font-medium text-gray-800">johndoe</td>
                 <td className="py-3 px-4 text-gray-600">john@example.com</td>
                 <td className="py-3 px-4">
@@ -68,7 +71,7 @@ export default function DashboardHome() {
                   </span>
                 </td>
               </tr>
-              <tr className="border-t hover:bg-gray-50">
+              <tr className="border-t hover:bg-gray-50 transition duration-200">
                 <td className="py-3 px-4 font-medium text-gray-800">janedoe</td>
                 <td className="py-3 px-4 text-gray-600">jane@example.com</td>
                 <td className="py-3 px-4">
