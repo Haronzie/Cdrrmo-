@@ -88,6 +88,10 @@ USE_TZ = True  # Keep this True for timezone awareness
 # Static files
 STATIC_URL = 'static/'
 
+# Media files (uploaded files) - UPDATED FOR DEVELOPMENT
+MEDIA_URL = '/media/'
+MEDIA_ROOT = r'C:\CDRRMO_Development\Files'  # Physical folder for development
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Django REST Framework settings
@@ -116,3 +120,8 @@ CORS_ALLOWED_ORIGINS = [
 
 # For development only (allow everything):
 # CORS_ALLOW_ALL_ORIGINS = True
+
+# File upload settings
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB
+FILE_UPLOAD_PERMISSIONS = 0o644

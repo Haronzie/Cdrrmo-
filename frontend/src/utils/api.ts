@@ -25,6 +25,11 @@ api.interceptors.request.use((config: AxiosRequestConfig) => {
     }
   }
 
+  // Handle file uploads - remove Content-Type for FormData
+  if (config.data instanceof FormData) {
+    delete (config.headers as any)["Content-Type"];
+  }
+
   return config;
 });
 

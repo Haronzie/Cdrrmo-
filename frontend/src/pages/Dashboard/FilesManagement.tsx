@@ -27,7 +27,7 @@ import {
   Code,
   FileX
 } from "lucide-react";
-
+import api from "../../utils/api";
 // Types
 interface FileItem {
   id: string;
@@ -35,13 +35,10 @@ interface FileItem {
   type: "file" | "folder";
   size?: number;
   modified: string;
-  parentId: string | null;
-  mimeType?: string;
+  parent_id: string | null;
+  mime_type?: string;
   path: string;
 }
-
-// Mock data structure for demonstration
-const initialFileSystem: FileItem[] = [];
 
 // Helper functions
 const formatFileSize = (bytes: number): string => {
@@ -75,7 +72,7 @@ const getFileIcon = (mimeType?: string, fileName?: string) => {
 };
 
 export default function FilesManagement() {
-  const [fileSystem, setFileSystem] = useState<FileItem[]>(initialFileSystem);
+  const [fileSystem, setFileSystem] = useState<FileItem[]>([]);
   const [currentPath, setCurrentPath] = useState<string>("/");
   const [searchTerm, setSearchTerm] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
@@ -84,13 +81,34 @@ export default function FilesManagement() {
   const [newFolderName, setNewFolderName] = useState("");
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  // Get current folder items
+  // Load files from backend on component mount and path change
+  useEffect(() => {
+    loadFiles();
+  }, [currentPath]);
+
+  // Load files from backend
+  const loadFiles = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get(`/files/?path=${encodeURIComponent(currentPath)}`);
+      
+      if (response.data.success) {
+        setFileSystem(response.data.data);
+      } else {
+        console.error('Failed to load files:', response.data.error);
+      }
+    } catch (error) {
+      console.error('Error loading files:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get current folder items (now filtered from API data)
   const getCurrentItems = (): FileItem[] => {
-    return fileSystem.filter(item => {
-      const itemPath = item.path === "/" ? "/" : item.path + "/";
-      return itemPath === currentPath;
-    });
+    return fileSystem;
   };
 
   // Get filtered items based on search
@@ -147,41 +165,66 @@ export default function FilesManagement() {
     setCurrentPath(path);
   };
 
-  // Create new folder
-  const createFolder = () => {
+  // Create new folder - NOW WITH API CALL
+  const createFolder = async () => {
     if (!newFolderName.trim()) return;
     
-    const newFolder: FileItem = {
-      id: Date.now().toString(),
-      name: newFolderName.trim(),
-      type: "folder",
-      modified: new Date().toISOString(),
-      parentId: currentPath === "/" ? null : currentPath,
-      path: currentPath
-    };
-    
-    setFileSystem(prev => [...prev, newFolder]);
-    setNewFolderName("");
-    setIsCreateFolderModalOpen(false);
+    try {
+      setLoading(true);
+      const response = await api.post('/files/create_folder/', {
+        name: newFolderName.trim(),
+        path: currentPath
+      });
+
+      if (response.data.success) {
+        // Reload files to show the new folder
+        await loadFiles();
+        setNewFolderName("");
+        setIsCreateFolderModalOpen(false);
+      } else {
+        console.error('Failed to create folder:', response.data.error);
+        alert('Failed to create folder. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error creating folder:', error);
+      alert('Error creating folder. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Handle file upload
-  const handleFileUpload = (files: FileList) => {
-    Array.from(files).forEach(file => {
-      const newFile: FileItem = {
-        id: Date.now().toString() + Math.random().toString(),
-        name: file.name,
-        type: "file",
-        size: file.size,
-        modified: new Date().toISOString(),
-        parentId: currentPath === "/" ? null : currentPath,
-        path: currentPath,
-        mimeType: file.type
-      };
+  // Handle file upload - NOW WITH API CALL
+  const handleFileUpload = async (files: FileList) => {
+    try {
+      setLoading(true);
+      const formData = new FormData();
       
-      setFileSystem(prev => [...prev, newFile]);
-    });
-    setIsUploadModalOpen(false);
+      Array.from(files).forEach(file => {
+        formData.append('files', file);
+      });
+      
+      formData.append('path', currentPath);
+      
+      const response = await api.post('/files/upload/', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (response.data.success) {
+        // Reload files to show uploaded files
+        await loadFiles();
+        setIsUploadModalOpen(false);
+      } else {
+        console.error('Failed to upload files:', response.data.error);
+        alert('Failed to upload files. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error uploading files:', error);
+      alert('Error uploading files. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Handle drag and drop
@@ -194,10 +237,30 @@ export default function FilesManagement() {
     }
   };
 
-  // Delete selected items
-  const deleteSelectedItems = () => {
-    setFileSystem(prev => prev.filter(item => !selectedItems.has(item.id)));
-    setSelectedItems(new Set());
+  // Delete selected items - NOW WITH API CALL
+  const deleteSelectedItems = async () => {
+    try {
+      setLoading(true);
+      const response = await api.delete('/files/bulk_delete/', {
+        data: {
+          items: Array.from(selectedItems)
+        }
+      });
+
+      if (response.data.success) {
+        // Reload files to reflect deletions
+        await loadFiles();
+        setSelectedItems(new Set());
+      } else {
+        console.error('Failed to delete items:', response.data.error);
+        alert('Failed to delete items. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error deleting items:', error);
+      alert('Error deleting items. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Toggle item selection
@@ -230,14 +293,16 @@ export default function FilesManagement() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setIsCreateFolderModalOpen(true)}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors duration-200 shadow-md hover:shadow-lg"
+            disabled={loading}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors duration-200 shadow-md hover:shadow-lg disabled:opacity-50"
           >
             <FolderPlus className="h-4 w-4" />
             New Folder
           </button>
           <button
             onClick={() => setIsUploadModalOpen(true)}
-            className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors duration-200 shadow-md hover:shadow-lg"
+            disabled={loading}
+            className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors duration-200 shadow-md hover:shadow-lg disabled:opacity-50"
           >
             <Upload className="h-4 w-4" />
             Upload Files
@@ -310,7 +375,8 @@ export default function FilesManagement() {
             {selectedItems.size > 0 && (
               <button
                 onClick={deleteSelectedItems}
-                className="flex items-center gap-2 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                disabled={loading}
+                className="flex items-center gap-2 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
                 <Trash2 className="h-4 w-4" />
                 Delete ({selectedItems.size})
@@ -319,6 +385,14 @@ export default function FilesManagement() {
           </div>
         </div>
       </div>
+
+      {/* Loading indicator */}
+      {loading && (
+        <div className="text-center py-4">
+          <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+          <span className="ml-2 text-gray-600">Loading...</span>
+        </div>
+      )}
 
       {/* File Area */}
       <div
@@ -332,7 +406,7 @@ export default function FilesManagement() {
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
       >
-        {filteredItems.length === 0 ? (
+        {filteredItems.length === 0 && !loading ? (
           <div className="h-full flex items-center justify-center">
             <div className="text-center">
               <Folder className="h-16 w-16 text-gray-300 mx-auto mb-4" />
@@ -407,7 +481,7 @@ export default function FilesManagement() {
                           {item.type === "folder" ? (
                             <Folder className="h-6 w-6 text-blue-500 mr-3" />
                           ) : (
-                            <div className="mr-3">{getFileIcon(item.mimeType, item.name)}</div>
+                            <div className="mr-3">{getFileIcon(item.mime_type, item.name)}</div>
                           )}
                           <button
                             onClick={() => item.type === "folder" && navigateToFolder(item.id)}
@@ -469,7 +543,7 @@ export default function FilesManagement() {
                         {item.type === "folder" ? (
                           <Folder className="h-12 w-12 text-blue-500" />
                         ) : (
-                          <div className="flex justify-center">{getFileIcon(item.mimeType, item.name)}</div>
+                          <div className="flex justify-center">{getFileIcon(item.mime_type, item.name)}</div>
                         )}
                       </div>
                       <p className="text-sm font-medium text-gray-900 truncate" title={item.name}>
@@ -527,10 +601,10 @@ export default function FilesManagement() {
                 </button>
                 <button
                   onClick={createFolder}
-                  disabled={!newFolderName.trim()}
+                  disabled={!newFolderName.trim() || loading}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Create Folder
+                  {loading ? 'Creating...' : 'Create Folder'}
                 </button>
               </div>
             </div>
