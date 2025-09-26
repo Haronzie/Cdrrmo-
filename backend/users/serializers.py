@@ -3,10 +3,11 @@ from django.contrib.auth.models import User
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 
-# ✅ For Register
+# ✅ For Register - Updated to make email optional
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
-    is_admin = serializers.BooleanField(source='is_staff', read_only=True)  # map is_staff → is_admin
+    email = serializers.EmailField(required=False, allow_blank=True)  # 👈 Make email optional
+    is_admin = serializers.BooleanField(source='is_staff', read_only=True)
 
     class Meta:
         model = User
@@ -18,7 +19,7 @@ class UserSerializer(serializers.ModelSerializer):
 
         user = User.objects.create_user(
             username=validated_data['username'],
-            email=validated_data.get('email'),
+            email=validated_data.get('email', ''),  # 👈 Default to empty string if no email
             password=validated_data['password']
         )
 
@@ -31,7 +32,7 @@ class UserSerializer(serializers.ModelSerializer):
         return user
 
 
-# ✅ For Login
+# ✅ For Login - No changes needed
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
