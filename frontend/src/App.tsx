@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import DashboardHome from "./pages/Dashboard/DashboardHome";
 import UserDashboard from "./pages/Dashboard/UserDashboard";
 import UserManagement from "./pages/Dashboard/UserManagement";
+import FilesManagement from "./pages/Dashboard/FilesManagement";
 import Settings from "./pages/Dashboard/Settings";
 import AdminLayout from "./layouts/AdminLayout";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -37,6 +38,16 @@ function App() {
             element={
               <AdminLayout>
                 <UserManagement />
+              </AdminLayout>
+            }
+          />
+
+          {/* Admin Files Management */}
+          <Route
+            path="/admin/files"
+            element={
+              <AdminLayout>
+                <FilesManagement />
               </AdminLayout>
             }
           />
