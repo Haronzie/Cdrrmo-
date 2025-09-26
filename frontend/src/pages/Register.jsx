@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../utils/api"; // ✅ use centralized api.ts
-
-import axios from "axios";
+import api from "../utils/api"; // centralized api.ts
 
 export default function Register() {
   const navigate = useNavigate();
@@ -26,10 +24,21 @@ export default function Register() {
     setSuccess("");
 
     try {
-       await api.post("auth/register/", formData);
-      setSuccess("Account created successfully! Redirecting to login...");
-      setTimeout(() => navigate("/login"), 2000); // redirect after 2s
+      const res = await api.post("auth/register/", formData);
+
+      // ✅ Always returns { user, access, refresh }
+      const { user, access, refresh } = res.data;
+
+      localStorage.setItem("user", JSON.stringify(user));
+      if (access) localStorage.setItem("access", access);
+      if (refresh) localStorage.setItem("refresh", refresh);
+
+    
+        setSuccess("Account created successfully! Redirecting to login...");
+        setTimeout(() => navigate("/login"), 2000);
+      
     } catch (err) {
+      console.error("Register error:", err.response?.data || err.message);
       setError("Failed to register. Please check your input.");
     }
   };

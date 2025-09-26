@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
+import api from "../utils/api"; // ✅ use centralized api.ts
 
 export default function Login() {
   const navigate = useNavigate();
@@ -21,17 +21,27 @@ export default function Login() {
     setError("");
 
     try {
-      const response = await axios.post(
-        "http://127.0.0.1:8000/api/auth/login/",
-        formData
-      );
+      const res = await api.post("auth/login/", formData);
 
-      // Store JWT token in localStorage
-      localStorage.setItem("access", response.data.access);
-      localStorage.setItem("refresh", response.data.refresh);
+      // Store JWT tokens
+      if (res.data.access) {
+        localStorage.setItem("access", res.data.access);
+      }
+      if (res.data.refresh) {
+        localStorage.setItem("refresh", res.data.refresh);
+      }
 
-      // Redirect to dashboard after login
-      navigate("/dashboard");
+      // Store user info
+      if (res.data.user) {
+        localStorage.setItem("user", JSON.stringify(res.data.user));
+      }
+
+      // ✅ Redirect based on role
+      if (res.data.user?.is_admin) {
+        navigate("/admin"); // Admin goes to admin dashboard
+      } else {
+        navigate("/dashboard"); // Normal user goes to homepage (or user dashboard)
+      }
     } catch (err) {
       setError("Invalid username or password.");
     }
