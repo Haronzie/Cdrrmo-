@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import DashboardHome from "./pages/Dashboard/DashboardHome";
 import UserDashboard from "./pages/Dashboard/UserDashboard"; // ✅ existing
 import UserManagement from "./pages/Dashboard/UserManagement"; // 🆕 new
+import Settings from "./pages/Dashboard/Settings"; // 🆕 Settings page
 import AdminLayout from "./layouts/AdminLayout";
 
 function App() {
@@ -34,6 +35,16 @@ function App() {
           element={
             <AdminLayout>
               <UserManagement />
+            </AdminLayout>
+          }
+        />
+
+        {/* Admin Settings - 🆕 NEW ROUTE */}
+        <Route
+          path="/admin/settings"
+          element={
+            <AdminLayout>
+              <Settings />
             </AdminLayout>
           }
         />
