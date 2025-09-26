@@ -1,12 +1,13 @@
 from django.contrib import admin
 from django.urls import path, include
+from users.urls import auth_urlpatterns, management_urlpatterns
 
 urlpatterns = [
     path('admin/', admin.site.urls),
 
-    # Users authentication routes (register, login, logout, refresh)
-    path('api/auth/', include('users.urls')),
+    # Authentication routes: /api/auth/
+    path('api/auth/', include(auth_urlpatterns)),
     
-    # Add this line for the user management endpoints:
-    path('api/', include('users.urls')),
+    # User management routes: /api/admin/
+    path('api/admin/', include(management_urlpatterns)),
 ]

@@ -25,22 +25,30 @@ export default function AdminLayout({ children }) {
   const username = getUserData();
 
   const handleLogout = async () => {
-    try {
-      const refresh = localStorage.getItem("refresh");
-      if (refresh) {
-        await api.post("auth/logout/", { refresh });
-      }
-    } catch (err) {
-      console.error("Logout error:", err.response?.data || err.message);
-    } finally {
-      // Clear localStorage and redirect
-      localStorage.removeItem("user");
-      localStorage.removeItem("access");
-      localStorage.removeItem("refresh");
-      navigate("/login");
+  try {
+    const refresh = localStorage.getItem("refresh");
+    if (refresh) {
+      // Make sure the Content-Type is set correctly
+      await api.post("auth/logout/", 
+        { refresh: refresh }, 
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
     }
-  };
-
+  } catch (err) {
+    // Log the error but don't stop the logout process
+    console.error("Logout error:", err.response?.data || err.message);
+  } finally {
+    // Always clear localStorage and redirect regardless of API response
+    localStorage.removeItem("user");
+    localStorage.removeItem("access");  
+    localStorage.removeItem("refresh");
+    navigate("/login");
+  }
+};
   return (
     <div className={`flex min-h-screen ${theme === 'dark' ? 'dark bg-gray-900' : 'bg-gradient-to-br from-gray-50 to-gray-100'}`}>
       {/* Fixed Professional Sidebar */}
