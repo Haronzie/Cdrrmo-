@@ -18,64 +18,28 @@ import {
   AlertCircle,
   Clock
 } from "lucide-react";
+import api from "../../utils/api";
+ // Import your API instance
 
-// Mock data - replace with actual API calls
-const mockUsers = [
-  {
-    id: 1,
-    username: "johndoe",
-    email: "john@example.com",
-    firstName: "John",
-    lastName: "Doe",
-    role: "User",
-    status: "Active",
-    phone: "+1-234-567-8900",
-    createdAt: "2024-01-15",
-    lastLogin: "2024-09-25"
-  },
-  {
-    id: 2,
-    username: "janedoe",
-    email: "jane@example.com",
-    firstName: "Jane",
-    lastName: "Doe",
-    role: "User",
-    status: "Active",
-    phone: "+1-234-567-8901",
-    createdAt: "2024-02-20",
-    lastLogin: "2024-09-24"
-  },
-  {
-    id: 3,
-    username: "mikejones",
-    email: "mike@example.com",
-    firstName: "Mike",
-    lastName: "Jones",
-    role: "Moderator",
-    status: "Inactive",
-    phone: "+1-234-567-8902",
-    createdAt: "2024-03-10",
-    lastLogin: "2024-09-20"
-  },
-  {
-    id: 4,
-    username: "admin",
-    email: "admin@example.com",
-    firstName: "Admin",
-    lastName: "User",
-    role: "Admin",
-    status: "Active",
-    phone: "+1-234-567-8903",
-    createdAt: "2024-01-01",
-    lastLogin: "2024-09-26"
-  }
-];
+// Updated types to match your backend
+interface User {
+  id: number;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: "User" | "Moderator" | "Admin";
+  status: "Active" | "Inactive" | "Pending";
+  phone: string;
+  created_at: string;
+  last_login: string;
+}
 
 const initialUserForm = {
   username: "",
   email: "",
-  firstName: "",
-  lastName: "",
+  first_name: "",
+  last_name: "",
   role: "User",
   status: "Active",
   phone: "",
@@ -83,23 +47,50 @@ const initialUserForm = {
 };
 
 export default function UsersManagement() {
-  const [users, setUsers] = useState(mockUsers);
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterRole, setFilterRole] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<"create" | "edit" | "view">("create");
-  const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [userForm, setUserForm] = useState(initialUserForm);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [userToDelete, setUserToDelete] = useState(null);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Fetch users from API on component mount
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  const fetchUsers = async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const response = await api.get("/admin/users/");
+      
+      if (response.data.success) {
+        setUsers(response.data.data);
+      } else {
+        setError("Failed to fetch users");
+      }
+    } catch (err: any) {
+      console.error("Error fetching users:", err);
+      setError(err.response?.data?.error || "Failed to fetch users");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Filter users based on search and filters
   const filteredUsers = users.filter(user => {
     const matchesSearch = user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.lastName.toLowerCase().includes(searchTerm.toLowerCase());
+                         user.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         user.last_name.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesRole = filterRole === "All" || user.role === filterRole;
     const matchesStatus = filterStatus === "All" || user.status === filterStatus;
@@ -108,10 +99,24 @@ export default function UsersManagement() {
   });
 
   // Handle modal open
-  const openModal = (type: "create" | "edit" | "view", user = null) => {
+  const openModal = (type: "create" | "edit" | "view", user: User | null = null) => {
     setModalType(type);
     setSelectedUser(user);
-    setUserForm(user || initialUserForm);
+    if (user) {
+      // Map backend fields to form fields
+      setUserForm({
+        username: user.username,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        role: user.role,
+        status: user.status,
+        phone: user.phone,
+        password: ""
+      });
+    } else {
+      setUserForm(initialUserForm);
+    }
     setIsModalOpen(true);
   };
 
@@ -120,36 +125,59 @@ export default function UsersManagement() {
     setIsModalOpen(false);
     setSelectedUser(null);
     setUserForm(initialUserForm);
+    setError("");
   };
 
   // Handle form submission
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (modalType === "create") {
-      const newUser = {
-        ...userForm,
-        id: users.length + 1,
-        createdAt: new Date().toISOString().split('T')[0],
-        lastLogin: "Never"
-      };
-      setUsers([...users, newUser]);
-    } else if (modalType === "edit") {
-      setUsers(users.map(user => 
-        user.id === selectedUser?.id 
-          ? { ...user, ...userForm }
-          : user
-      ));
+    setSubmitting(true);
+    setError("");
+
+    try {
+      if (modalType === "create") {
+        const response = await api.post("/admin/users/", userForm);
+        if (response.data.success) {
+          // Refresh the users list
+          await fetchUsers();
+          closeModal();
+        } else {
+          setError(response.data.error || "Failed to create user");
+        }
+      } else if (modalType === "edit" && selectedUser) {
+        const response = await api.put(`/admin/users/${selectedUser.id}/`, userForm);
+        if (response.data.success) {
+          // Refresh the users list
+          await fetchUsers();
+          closeModal();
+        } else {
+          setError(response.data.error || "Failed to update user");
+        }
+      }
+    } catch (err: any) {
+      console.error("Error submitting form:", err);
+      setError(err.response?.data?.error || "An error occurred");
+    } finally {
+      setSubmitting(false);
     }
-    
-    closeModal();
   };
 
   // Handle delete
-  const handleDelete = (userId: number) => {
-    setUsers(users.filter(user => user.id !== userId));
-    setShowDeleteConfirm(false);
-    setUserToDelete(null);
+  const handleDelete = async (userId: number) => {
+    try {
+      const response = await api.delete(`/admin/users/${userId}/`);
+      if (response.data.success) {
+        // Refresh the users list
+        await fetchUsers();
+        setShowDeleteConfirm(false);
+        setUserToDelete(null);
+      } else {
+        setError(response.data.error || "Failed to delete user");
+      }
+    } catch (err: any) {
+      console.error("Error deleting user:", err);
+      setError(err.response?.data?.error || "Failed to delete user");
+    }
   };
 
   // Get status badge color
@@ -159,7 +187,7 @@ export default function UsersManagement() {
       Inactive: "bg-red-100 text-red-800",
       Pending: "bg-yellow-100 text-yellow-800"
     };
-    return colors[status] || colors.Inactive;
+    return colors[status as keyof typeof colors] || colors.Inactive;
   };
 
   // Get role badge color
@@ -169,11 +197,35 @@ export default function UsersManagement() {
       Moderator: "bg-blue-100 text-blue-800",
       User: "bg-gray-100 text-gray-800"
     };
-    return colors[role] || colors.User;
+    return colors[role as keyof typeof colors] || colors.User;
   };
+
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-500">Loading users...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full overflow-hidden flex flex-col">
+      {/* Error Message */}
+      {error && (
+        <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          {error}
+          <button 
+            onClick={() => setError("")}
+            className="float-right ml-2 text-red-500 hover:text-red-700"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -259,12 +311,12 @@ export default function UsersManagement() {
                     <div className="flex items-center">
                       <div className="w-10 h-10 bg-gradient-to-r from-blue-400 to-blue-600 rounded-full flex items-center justify-center">
                         <span className="text-white text-sm font-bold">
-                          {user.firstName.charAt(0) + user.lastName.charAt(0)}
+                          {user.first_name.charAt(0) + user.last_name.charAt(0)}
                         </span>
                       </div>
                       <div className="ml-4">
                         <div className="text-sm font-medium text-gray-900">
-                          {user.firstName} {user.lastName}
+                          {user.first_name} {user.last_name}
                         </div>
                         <div className="text-sm text-gray-500">@{user.username}</div>
                       </div>
@@ -288,7 +340,7 @@ export default function UsersManagement() {
                     <div className="text-gray-500">{user.phone}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {user.lastLogin}
+                    {user.last_login}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end gap-2">
@@ -353,6 +405,12 @@ export default function UsersManagement() {
             </div>
 
             <form onSubmit={handleSubmit} className="p-6">
+              {error && (
+                <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded text-sm">
+                  {error}
+                </div>
+              )}
+              
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -361,8 +419,8 @@ export default function UsersManagement() {
                     </label>
                     <input
                       type="text"
-                      value={userForm.firstName}
-                      onChange={(e) => setUserForm({...userForm, firstName: e.target.value})}
+                      value={userForm.first_name}
+                      onChange={(e) => setUserForm({...userForm, first_name: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       disabled={modalType === "view"}
                       required
@@ -374,8 +432,8 @@ export default function UsersManagement() {
                     </label>
                     <input
                       type="text"
-                      value={userForm.lastName}
-                      onChange={(e) => setUserForm({...userForm, lastName: e.target.value})}
+                      value={userForm.last_name}
+                      onChange={(e) => setUserForm({...userForm, last_name: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       disabled={modalType === "view"}
                       required
@@ -446,7 +504,7 @@ export default function UsersManagement() {
                     </label>
                     <select
                       value={userForm.role}
-                      onChange={(e) => setUserForm({...userForm, role: e.target.value})}
+                      onChange={(e) => setUserForm({...userForm, role: e.target.value as "User" | "Moderator" | "Admin"})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       disabled={modalType === "view"}
                     >
@@ -461,7 +519,7 @@ export default function UsersManagement() {
                     </label>
                     <select
                       value={userForm.status}
-                      onChange={(e) => setUserForm({...userForm, status: e.target.value})}
+                      onChange={(e) => setUserForm({...userForm, status: e.target.value as "Active" | "Inactive" | "Pending"})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       disabled={modalType === "view"}
                     >
@@ -479,15 +537,25 @@ export default function UsersManagement() {
                     type="button"
                     onClick={closeModal}
                     className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                    disabled={submitting}
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50"
+                    disabled={submitting}
                   >
-                    <Save className="h-4 w-4" />
-                    {modalType === "create" ? "Create User" : "Update User"}
+                    {submitting ? (
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    {submitting 
+                      ? "Saving..." 
+                      : modalType === "create" 
+                        ? "Create User" 
+                        : "Update User"}
                   </button>
                 </div>
               )}
@@ -508,7 +576,7 @@ export default function UsersManagement() {
                 Delete User
               </h3>
               <p className="text-sm text-gray-500 text-center mb-6">
-                Are you sure you want to delete <strong>{userToDelete?.firstName} {userToDelete?.lastName}</strong>? 
+                Are you sure you want to delete <strong>{userToDelete?.first_name} {userToDelete?.last_name}</strong>? 
                 This action cannot be undone.
               </p>
               <div className="flex gap-3">
@@ -519,7 +587,7 @@ export default function UsersManagement() {
                   Cancel
                 </button>
                 <button
-                  onClick={() => handleDelete(userToDelete?.id)}
+                  onClick={() => userToDelete && handleDelete(userToDelete.id)}
                   className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
                 >
                   Delete

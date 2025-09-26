@@ -7,6 +7,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.contrib.auth import authenticate
 
 from .serializers import UserSerializer, UserListSerializer, CustomTokenObtainPairSerializer
 
@@ -33,10 +35,52 @@ class RegisterView(generics.CreateAPIView):
         return Response(data, status=status.HTTP_201_CREATED)
 
 
-# Login
+# Login - FIXED to properly track last_login
 class LoginView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
     permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        # Get username/password from request
+        username = request.data.get('username')
+        password = request.data.get('password')
+        
+        if username and password:
+            # Authenticate the user first
+            user = authenticate(username=username, password=password)
+            if user:
+                # Update last_login BEFORE generating tokens
+                user.last_login = timezone.now()
+                user.save(update_fields=['last_login'])
+        
+        # Now proceed with the normal token generation
+        response = super().post(request, *args, **kwargs)
+        
+        return response
+
+
+# Alternative approach - Override the serializer's validate method
+class AlternativeLoginView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception:
+            return Response(
+                {"error": "Invalid credentials"}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Update last_login after successful validation
+        if hasattr(serializer, 'user') and serializer.user:
+            serializer.user.last_login = timezone.now()
+            serializer.user.save(update_fields=['last_login'])
+        
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
 
 # Refresh Token
@@ -278,25 +322,3 @@ class UserManagementViewSet(viewsets.ModelViewSet):
                 'success': False,
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-# Alternative simple views if you prefer function-based views
-class UserListView(generics.ListAPIView):
-    """Simple list view for users"""
-    queryset = User.objects.all().order_by('-date_joined')
-    serializer_class = UserListSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
-
-
-class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """Simple detail/update/delete view for users"""
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
-
-
-class UserCreateView(generics.CreateAPIView):
-    """Simple create view for users"""
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]

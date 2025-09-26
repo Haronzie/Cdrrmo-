@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-
+from django.utils import timezone
+import pytz
 
 # Enhanced UserSerializer for full CRUD operations
 class UserSerializer(serializers.ModelSerializer):
@@ -135,18 +136,26 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
     def to_representation(self, instance):
-        """Customize the output representation"""
+        """Customize the output representation with Philippines timezone"""
         data = super().to_representation(instance)
         
         # Add phone field (empty for now, but ready for extension)
         data['phone'] = self.get_phone(instance)
         
-        # Format dates for frontend
-        if data.get('created_at'):
-            data['created_at'] = instance.date_joined.strftime('%Y-%m-%d')
+        # Get Philippines timezone
+        ph_timezone = pytz.timezone('Asia/Manila')
         
+        # Format created_at for frontend (M/D/Y format)
+        if data.get('created_at') and instance.date_joined:
+            # Convert to Philippines timezone
+            ph_time = instance.date_joined.astimezone(ph_timezone)
+            data['created_at'] = ph_time.strftime('%m/%d/%Y')
+        
+        # Format last_login for frontend (M/D/Y format)
         if data.get('last_login') and instance.last_login:
-            data['last_login'] = instance.last_login.strftime('%Y-%m-%d')
+            # Convert to Philippines timezone
+            ph_time = instance.last_login.astimezone(ph_timezone)
+            data['last_login'] = ph_time.strftime('%m/%d/%Y')
         else:
             data['last_login'] = "Never"
 
@@ -185,25 +194,36 @@ class UserListSerializer(serializers.ModelSerializer):
         return "Active" if obj.is_active else "Inactive"
 
     def to_representation(self, instance):
+        """Customize the output representation with Philippines timezone"""
         data = super().to_representation(instance)
         
         # Add phone field (empty for now)
         data['phone'] = ""
         
-        # Format dates
-        if data.get('created_at'):
-            data['created_at'] = instance.date_joined.strftime('%Y-%m-%d')
+        # Get Philippines timezone
+        ph_timezone = pytz.timezone('Asia/Manila')
         
+        # Format created_at (M/D/Y format)
+        if data.get('created_at') and instance.date_joined:
+            ph_time = instance.date_joined.astimezone(ph_timezone)
+            data['created_at'] = ph_time.strftime('%m/%d/%Y')
+        
+        # Format last_login (M/D/Y format)
         if data.get('last_login') and instance.last_login:
-            data['last_login'] = instance.last_login.strftime('%Y-%m-%d')
+            ph_time = instance.last_login.astimezone(ph_timezone)
+            data['last_login'] = ph_time.strftime('%m/%d/%Y')
         else:
             data['last_login'] = "Never"
 
         return data
 
 
-# Login serializer - no changes needed
+# Login serializer
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = None
+
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
@@ -212,7 +232,12 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
+        # Call the parent validate method
         data = super().validate(attrs)
+        
+        # Store the user instance for access in the view
+        self.user = self.user  # This is set by parent class
+        
         # Include user info in the response body
         data['user'] = {
             "id": self.user.id,

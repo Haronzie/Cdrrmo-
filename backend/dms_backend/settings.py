@@ -75,11 +75,11 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# Internationalization
+# Internationalization - UPDATED FOR PHILIPPINES
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Manila'  # Changed from 'UTC' to Philippines timezone
 USE_I18N = True
-USE_TZ = True
+USE_TZ = True  # Keep this True for timezone awareness
 
 # Static files
 STATIC_URL = 'static/'
