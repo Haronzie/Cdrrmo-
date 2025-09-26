@@ -3,6 +3,8 @@ from django.contrib.auth.models import User
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.utils import timezone
 import pytz
+import os
+from django.conf import settings
 
 # Enhanced UserSerializer for full CRUD operations
 class UserSerializer(serializers.ModelSerializer):
@@ -64,8 +66,52 @@ class UserSerializer(serializers.ModelSerializer):
         # You can extend this if you have a UserProfile model
         return ""
 
+    def _create_user_folders(self, user):
+        """Create default CDRRMO folder structure for new user"""
+        try:
+            # Import FileItem model here to avoid circular imports
+            from files.models import FileItem
+            
+            # Create main CDRRMO folder
+            cdrrmo_folder, created = FileItem.objects.get_or_create(
+                name='CDRRMO',
+                path='/',
+                type='folder',
+                created_by=user,
+                defaults={'is_public': False}
+            )
+            
+            if created:
+                print(f"Created CDRRMO folder for user: {user.username}")
+            
+            # Create physical directory for CDRRMO
+            cdrrmo_physical_path = os.path.join(settings.MEDIA_ROOT, 'CDRRMO')
+            os.makedirs(cdrrmo_physical_path, exist_ok=True)
+            
+            # Create subfolders inside CDRRMO
+            subfolders = ['Operation', 'Research', 'Training']
+            
+            for subfolder_name in subfolders:
+                subfolder, created = FileItem.objects.get_or_create(
+                    name=subfolder_name,
+                    path='/CDRRMO',  # Path points to CDRRMO folder
+                    type='folder',
+                    created_by=user,
+                    defaults={'is_public': False}
+                )
+                
+                if created:
+                    print(f"Created subfolder: {subfolder_name} inside CDRRMO for user: {user.username}")
+                
+                # Create physical directory for subfolder
+                subfolder_physical_path = os.path.join(settings.MEDIA_ROOT, 'CDRRMO', subfolder_name)
+                os.makedirs(subfolder_physical_path, exist_ok=True)
+                
+        except Exception as e:
+            print(f"Error creating default folders for user {user.username}: {e}")
+
     def create(self, validated_data):
-        """Create new user with proper password hashing"""
+        """Create new user with proper password hashing and default folders"""
         # Check if this is the first user
         is_first_user = User.objects.count() == 0
 
@@ -99,6 +145,10 @@ class UserSerializer(serializers.ModelSerializer):
             user.is_superuser = True
 
         user.save()
+        
+        # Create default CDRRMO folder structure for the new user
+        self._create_user_folders(user)
+        
         return user
 
     def update(self, instance, validated_data):

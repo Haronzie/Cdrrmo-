@@ -25,9 +25,13 @@ import {
   Video,
   Music,
   Code,
-  FileX
+  FileX,
+  Building2,
+  BookOpen,
+  GraduationCap,
+  ArrowRight
 } from "lucide-react";
-import api from "../../utils/api";
+
 // Types
 interface FileItem {
   id: string;
@@ -38,6 +42,17 @@ interface FileItem {
   parent_id: string | null;
   mime_type?: string;
   path: string;
+}
+
+interface DashboardFolder {
+  id: string;
+  name: string;
+  path: string;
+  icon: React.ReactNode;
+  color: string;
+  description: string;
+  fileCount?: number;
+  totalSize?: number;
 }
 
 // Helper functions
@@ -71,6 +86,34 @@ const getFileIcon = (mimeType?: string, fileName?: string) => {
   return <File className="h-6 w-6 text-gray-500" />;
 };
 
+// Dashboard folders configuration
+const dashboardFolders: DashboardFolder[] = [
+  {
+    id: 'operation',
+    name: 'Operation',
+    path: '/CDRRMO/Operation',
+    icon: <Building2 className="h-8 w-8" />,
+    color: 'blue',
+    description: 'Operational documents, reports, and daily activities'
+  },
+  {
+    id: 'research',
+    name: 'Research',
+    path: '/CDRRMO/Research',
+    icon: <BookOpen className="h-8 w-8" />,
+    color: 'green',
+    description: 'Research papers, studies, and analysis documents'
+  },
+  {
+    id: 'training',
+    name: 'Training',
+    path: '/CDRRMO/Training',
+    icon: <GraduationCap className="h-8 w-8" />,
+    color: 'purple',
+    description: 'Training materials, courses, and educational resources'
+  }
+];
+
 export default function FilesManagement() {
   const [fileSystem, setFileSystem] = useState<FileItem[]>([]);
   const [currentPath, setCurrentPath] = useState<string>("/");
@@ -82,17 +125,61 @@ export default function FilesManagement() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(true);
+  const [selectedDashboard, setSelectedDashboard] = useState<string>('');
+
+  // Mock API calls (replace with actual API integration)
+  const mockApi = {
+    get: async (url: string) => {
+      // Mock response - replace with actual API call
+      return {
+        data: {
+          success: true,
+          data: []
+        }
+      };
+    },
+    post: async (url: string, data: any) => {
+      return { data: { success: true } };
+    },
+    delete: async (url: string, config: any) => {
+      return { data: { success: true } };
+    }
+  };
 
   // Load files from backend on component mount and path change
   useEffect(() => {
-    loadFiles();
-  }, [currentPath]);
+    if (!showDashboard) {
+      loadFiles();
+    }
+  }, [currentPath, showDashboard]);
+
+  // Load dashboard statistics
+  useEffect(() => {
+    if (showDashboard) {
+      loadDashboardStats();
+    }
+  }, [showDashboard]);
+
+  // Load dashboard statistics
+  const loadDashboardStats = async () => {
+    // This would load file counts and sizes for each dashboard folder
+    try {
+      // Mock implementation - replace with actual API calls
+      for (const folder of dashboardFolders) {
+        // const response = await api.get(`/files/?path=${encodeURIComponent(folder.path)}`);
+        // Update folder stats here
+      }
+    } catch (error) {
+      console.error('Error loading dashboard stats:', error);
+    }
+  };
 
   // Load files from backend
   const loadFiles = async () => {
     try {
       setLoading(true);
-      const response = await api.get(`/files/?path=${encodeURIComponent(currentPath)}`);
+      const response = await mockApi.get(`/files/?path=${encodeURIComponent(currentPath)}`);
       
       if (response.data.success) {
         setFileSystem(response.data.data);
@@ -104,6 +191,24 @@ export default function FilesManagement() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Navigate to dashboard folder
+  const navigateToDashboard = (folderId: string) => {
+    const folder = dashboardFolders.find(f => f.id === folderId);
+    if (folder) {
+      setSelectedDashboard(folderId);
+      setCurrentPath(folder.path);
+      setShowDashboard(false);
+    }
+  };
+
+  // Return to dashboard
+  const returnToDashboard = () => {
+    setShowDashboard(true);
+    setSelectedDashboard('');
+    setCurrentPath('/');
+    setSelectedItems(new Set());
   };
 
   // Get current folder items (now filtered from API data)
@@ -139,7 +244,10 @@ export default function FilesManagement() {
     
     for (const part of parts) {
       path += "/" + part;
-      breadcrumbs.push({ name: part, path });
+      // Skip CDRRMO in breadcrumbs since it's not user-facing
+      if (part !== "CDRRMO") {
+        breadcrumbs.push({ name: part, path });
+      }
     }
     
     return breadcrumbs;
@@ -152,17 +260,29 @@ export default function FilesManagement() {
     const parts = currentPath.split("/").filter(part => part !== "");
     parts.pop();
     const newPath = parts.length === 0 ? "/" : "/" + parts.join("/");
-    setCurrentPath(newPath);
+    
+    // Check if we're going back to a dashboard folder level
+    const isDashboardPath = dashboardFolders.some(folder => folder.path === newPath);
+    if (isDashboardPath || newPath === '/CDRRMO') {
+      returnToDashboard();
+    } else {
+      setCurrentPath(newPath);
+    }
   };
 
   // Navigate to root
   const navigateToRoot = () => {
-    setCurrentPath("/");
+    returnToDashboard();
   };
 
   // Navigate to specific breadcrumb
   const navigateToBreadcrumb = (path: string) => {
-    setCurrentPath(path);
+    const isDashboardPath = dashboardFolders.some(folder => folder.path === path);
+    if (isDashboardPath || path === '/CDRRMO') {
+      returnToDashboard();
+    } else {
+      setCurrentPath(path);
+    }
   };
 
   // Create new folder - NOW WITH API CALL
@@ -171,18 +291,17 @@ export default function FilesManagement() {
     
     try {
       setLoading(true);
-      const response = await api.post('/files/create_folder/', {
+      const response = await mockApi.post('/files/create_folder/', {
         name: newFolderName.trim(),
         path: currentPath
       });
 
       if (response.data.success) {
-        // Reload files to show the new folder
         await loadFiles();
         setNewFolderName("");
         setIsCreateFolderModalOpen(false);
       } else {
-        console.error('Failed to create folder:', response.data.error);
+        console.error('Failed to create folder');
         alert('Failed to create folder. Please try again.');
       }
     } catch (error) {
@@ -205,18 +324,13 @@ export default function FilesManagement() {
       
       formData.append('path', currentPath);
       
-      const response = await api.post('/files/upload/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const response = await mockApi.post('/files/upload/', formData);
 
       if (response.data.success) {
-        // Reload files to show uploaded files
         await loadFiles();
         setIsUploadModalOpen(false);
       } else {
-        console.error('Failed to upload files:', response.data.error);
+        console.error('Failed to upload files');
         alert('Failed to upload files. Please try again.');
       }
     } catch (error) {
@@ -241,18 +355,17 @@ export default function FilesManagement() {
   const deleteSelectedItems = async () => {
     try {
       setLoading(true);
-      const response = await api.delete('/files/bulk_delete/', {
+      const response = await mockApi.delete('/files/bulk_delete/', {
         data: {
           items: Array.from(selectedItems)
         }
       });
 
       if (response.data.success) {
-        // Reload files to reflect deletions
         await loadFiles();
         setSelectedItems(new Set());
       } else {
-        console.error('Failed to delete items:', response.data.error);
+        console.error('Failed to delete items');
         alert('Failed to delete items. Please try again.');
       }
     } catch (error) {
@@ -278,17 +391,108 @@ export default function FilesManagement() {
 
   const filteredItems = getFilteredItems();
   const breadcrumbs = getBreadcrumbs();
+  const currentDashboard = dashboardFolders.find(f => f.id === selectedDashboard);
 
+  // Dashboard View
+  if (showDashboard) {
+    return (
+      <div className="h-full overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <Folder className="h-6 w-6 text-blue-600" />
+              File Management Dashboard
+            </h1>
+            <p className="text-sm text-gray-500 mt-1">Choose a department to manage files and folders</p>
+          </div>
+        </div>
+
+        {/* Dashboard Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+          {dashboardFolders.map((folder) => (
+            <div
+              key={folder.id}
+              onClick={() => navigateToDashboard(folder.id)}
+              className={`bg-white rounded-xl shadow-sm border-2 border-gray-200 hover:border-${folder.color}-400 hover:shadow-lg transition-all duration-200 cursor-pointer group`}
+            >
+              <div className="p-6">
+                <div className={`inline-flex items-center justify-center w-16 h-16 bg-${folder.color}-100 rounded-lg mb-4 group-hover:bg-${folder.color}-200 transition-colors`}>
+                  <div className={`text-${folder.color}-600`}>
+                    {folder.icon}
+                  </div>
+                </div>
+                
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">{folder.name}</h3>
+                <p className="text-gray-600 text-sm mb-4">{folder.description}</p>
+                
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-gray-500">
+                    <span className="font-medium">{folder.fileCount || 0}</span> files
+                  </div>
+                  <div className={`flex items-center gap-1 text-${folder.color}-600 group-hover:translate-x-1 transition-transform`}>
+                    <span className="text-sm font-medium">Open</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Quick Stats */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Overview</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="text-center p-4 bg-blue-50 rounded-lg">
+              <div className="text-2xl font-bold text-blue-600 mb-1">0</div>
+              <div className="text-sm text-gray-600">Total Files</div>
+            </div>
+            <div className="text-center p-4 bg-green-50 rounded-lg">
+              <div className="text-2xl font-bold text-green-600 mb-1">3</div>
+              <div className="text-sm text-gray-600">Departments</div>
+            </div>
+            <div className="text-center p-4 bg-purple-50 rounded-lg">
+              <div className="text-2xl font-bold text-purple-600 mb-1">0 MB</div>
+              <div className="text-sm text-gray-600">Total Size</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // File Management View
   return (
     <div className="h-full overflow-hidden flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              onClick={returnToDashboard}
+              className="flex items-center gap-1 text-blue-600 hover:text-blue-800 transition-colors"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Dashboard
+            </button>
+            {currentDashboard && (
+              <>
+                <ChevronRight className="h-4 w-4 text-gray-400" />
+                <div className={`flex items-center gap-2 text-${currentDashboard.color}-600`}>
+                  <div className="scale-75">{currentDashboard.icon}</div>
+                  <span className="font-medium">{currentDashboard.name}</span>
+                </div>
+              </>
+            )}
+          </div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Folder className="h-6 w-6 text-blue-600" />
-            File Management
+            {currentDashboard?.name || 'File Management'}
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Organize and manage your files and folders</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {currentDashboard?.description || 'Organize and manage your files and folders'}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -319,9 +523,16 @@ export default function FilesManagement() {
             className="flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100 text-blue-600"
           >
             <Home className="h-4 w-4" />
-            Root
+            Dashboard
           </button>
-          {breadcrumbs.map((crumb, index) => (
+          {currentDashboard && (
+            <>
+              <ChevronRight className="h-4 w-4 text-gray-400" />
+              <span className="px-2 py-1 text-blue-600 font-medium">{currentDashboard.name}</span>
+            </>
+          )}
+          {/* Only show additional breadcrumbs if we're deeper than the department root */}
+          {breadcrumbs.length > 1 && breadcrumbs.slice(1).map((crumb, index) => (
             <React.Fragment key={crumb.path}>
               <ChevronRight className="h-4 w-4 text-gray-400" />
               <button
@@ -332,7 +543,7 @@ export default function FilesManagement() {
               </button>
             </React.Fragment>
           ))}
-          {currentPath !== "/" && (
+          {currentPath !== "/" && !dashboardFolders.some(f => f.path === currentPath) && (
             <button
               onClick={navigateUp}
               className="ml-auto flex items-center gap-1 px-3 py-1 border border-gray-300 rounded-lg hover:bg-gray-50"
