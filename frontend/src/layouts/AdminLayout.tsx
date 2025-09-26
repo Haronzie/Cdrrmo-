@@ -38,10 +38,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       navigate("/login");
     }
   };
+
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Professional Sidebar */}
-      <aside className="w-64 bg-white shadow-xl border-r border-gray-200 relative">
+      {/* Fixed Professional Sidebar */}
+      <aside className="fixed left-0 top-0 w-64 h-full bg-white shadow-xl border-r border-gray-200 z-40 overflow-y-auto">
         {/* Brand Header */}
         <div className="p-6 border-b border-gray-100 bg-gradient-to-r from-green-500 to-green-600">
           <h1 className="font-bold text-xl text-white tracking-wide">Admin Panel</h1>
@@ -103,10 +104,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-green-400 to-blue-500"></div>
       </aside>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col">
-        {/* Professional Header */}
-        <header className="bg-white shadow-lg border-b border-gray-200 px-6 py-4 flex justify-between items-center">
+      {/* Main Content - Now with left margin to account for fixed sidebar */}
+      <div className="flex-1 flex flex-col ml-64">
+        {/* Fixed Professional Header */}
+        <header className="sticky top-0 bg-white shadow-lg border-b border-gray-200 px-6 py-4 flex justify-between items-center z-30">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 bg-gradient-to-r from-green-400 to-green-600 rounded-full flex items-center justify-center">
               <span className="text-white text-sm font-bold">{username.charAt(0).toUpperCase()}</span>
@@ -132,7 +133,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         {/* Content Area */}
         <main className="flex-1 overflow-auto bg-gradient-to-br from-gray-50 to-white">
-          <div className="p-6">
+          <div className="p-6 min-w-full">
             {children}
           </div>
         </main>
