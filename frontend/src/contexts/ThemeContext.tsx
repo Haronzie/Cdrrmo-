@@ -15,6 +15,7 @@ export const ThemeProvider = ({ children }) => {
   // Initialize theme from localStorage or default to 'light'
   const [theme, setTheme] = useState(() => {
     const savedTheme = localStorage.getItem('admin-theme');
+    // Only use saved theme if it exists, otherwise default to 'light'
     return savedTheme || 'light';
   });
 

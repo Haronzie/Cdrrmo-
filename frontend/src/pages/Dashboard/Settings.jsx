@@ -19,11 +19,18 @@ import {
   Smartphone,
   ChevronLeft
 } from "lucide-react";
-import { useTheme } from "../contexts/ThemeContext";
-
+import { useTheme } from "../../contexts/ThemeContext";
 export default function AdminSettings() {
   const [activeTab, setActiveTab] = useState('appearance');
   const { theme, updateTheme } = useTheme();
+  
+  // Local state for pending theme change - sync with current theme
+  const [pendingTheme, setPendingTheme] = useState(theme);
+  
+  // Update pendingTheme when theme changes from outside (like page refresh)
+  React.useEffect(() => {
+    setPendingTheme(theme);
+  }, [theme]);
   
   const [settings, setSettings] = useState({
     notifications: {
@@ -64,8 +71,8 @@ export default function AdminSettings() {
   };
 
   const resetSettings = () => {
-    // Reset theme to light
-    updateTheme('light');
+    // Reset pending theme to light
+    setPendingTheme('light');
     
     // Reset other settings to default
     setSettings({
@@ -98,7 +105,10 @@ export default function AdminSettings() {
   };
 
   const saveSettings = () => {
-    // In a real app, this would save to backend
+    // Apply the pending theme change
+    updateTheme(pendingTheme);
+    
+    // In a real app, this would save other settings to backend
     alert('Settings saved successfully!');
   };
 
@@ -194,6 +204,9 @@ export default function AdminSettings() {
 
                 <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} rounded-lg border p-6`}>
                   <h3 className={`text-lg font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'} mb-4`}>Theme</h3>
+                  <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'} mb-4`}>
+                    Select your preferred theme. Changes will be applied after clicking "Save Changes".
+                  </p>
                   <div className="grid grid-cols-2 gap-4">
                     {[
                       { id: 'light', label: 'Light', icon: Sun, desc: 'Clean and bright' },
@@ -201,9 +214,9 @@ export default function AdminSettings() {
                     ].map(themeOption => (
                       <button
                         key={themeOption.id}
-                        onClick={() => updateTheme(themeOption.id)}
+                        onClick={() => setPendingTheme(themeOption.id)}
                         className={`p-4 rounded-lg border-2 transition-all ${
-                          theme === themeOption.id
+                          pendingTheme === themeOption.id
                             ? 'border-green-500 bg-green-50 dark:bg-green-900 dark:border-green-400'
                             : theme === 'dark' 
                               ? 'border-gray-600 hover:border-gray-500 bg-gray-700'
@@ -211,7 +224,7 @@ export default function AdminSettings() {
                         }`}
                       >
                         <themeOption.icon className={`w-8 h-8 mx-auto mb-2 ${
-                          theme === themeOption.id ? 'text-green-600 dark:text-green-400' : 
+                          pendingTheme === themeOption.id ? 'text-green-600 dark:text-green-400' : 
                           theme === 'dark' ? 'text-gray-400' : 'text-gray-400'
                         }`} />
                         <div className="text-center">
@@ -221,6 +234,13 @@ export default function AdminSettings() {
                       </button>
                     ))}
                   </div>
+                  {pendingTheme !== theme && (
+                    <div className={`mt-4 p-3 rounded-lg ${theme === 'dark' ? 'bg-blue-900 border-blue-700' : 'bg-blue-50 border-blue-200'} border`}>
+                      <p className={`text-sm ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`}>
+                        Theme change pending. Click "Save Changes" to apply the new theme.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

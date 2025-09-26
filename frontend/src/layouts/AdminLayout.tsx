@@ -1,11 +1,11 @@
 import { Link, useNavigate } from "react-router-dom";
-import { LogOut, Moon, Sun } from "lucide-react";
+import { LogOut } from "lucide-react";
 import api from "../utils/api";
 import { useTheme } from "../contexts/ThemeContext";
 
 export default function AdminLayout({ children }) {
   const navigate = useNavigate();
-  const { theme, toggleTheme } = useTheme();
+  const { theme } = useTheme();
 
   // Get user data from localStorage
   const getUserData = () => {
@@ -121,18 +121,6 @@ export default function AdminLayout({ children }) {
           </div>
           
           <div className="flex items-center gap-3">
-            {/* Theme Toggle Button */}
-            <button
-              onClick={toggleTheme}
-              className={`p-2 rounded-lg transition-all duration-300 hover:scale-105
-                         ${theme === 'dark' 
-                           ? 'bg-gray-700 text-yellow-400 hover:bg-gray-600 border border-gray-600' 
-                           : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200'}`}
-              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-            >
-              {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-            </button>
-
             <button
               onClick={handleLogout}
               className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-lg 
